@@ -1,28 +1,20 @@
-import { TanStackDevtools } from "@tanstack/react-devtools";
 import { createRootRoute, HeadContent, Scripts } from "@tanstack/react-router";
-import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
 
 import appCss from "../styles.css?url";
+import shellCss from "../shells.css?url";
 
 export const Route = createRootRoute({
 	head: () => ({
 		meta: [
-			{
-				charSet: "utf-8",
-			},
-			{
-				name: "viewport",
-				content: "width=device-width, initial-scale=1",
-			},
-			{
-				title: "Roast0 — agent trace intelligence",
-			},
+			{ charSet: "utf-8" },
+			{ name: "viewport", content: "width=device-width, initial-scale=1" },
+			{ name: "theme-color", content: "#0c0a09" },
+			{ title: "Roast0 — agent trace intelligence" },
 		],
 		links: [
-			{
-				rel: "preconnect",
-				href: "https://fonts.googleapis.com",
-			},
+			{ rel: "stylesheet", href: appCss },
+			{ rel: "stylesheet", href: shellCss },
+			{ rel: "preconnect", href: "https://fonts.googleapis.com" },
 			{
 				rel: "preconnect",
 				href: "https://fonts.gstatic.com",
@@ -36,15 +28,7 @@ export const Route = createRootRoute({
 				rel: "stylesheet",
 				href: "https://api.fontshare.com/v2/css?f[]=general-sans@400,500,600&display=swap",
 			},
-			{
-				rel: "icon",
-				type: "image/svg+xml",
-				href: "/favicon.svg",
-			},
-			{
-				rel: "stylesheet",
-				href: appCss,
-			},
+			{ rel: "icon", href: "/favicon.svg", type: "image/svg+xml" },
 		],
 	}),
 	shellComponent: RootDocument,
@@ -58,17 +42,6 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 			</head>
 			<body>
 				{children}
-				<TanStackDevtools
-					config={{
-						position: "bottom-right",
-					}}
-					plugins={[
-						{
-							name: "Tanstack Router",
-							render: <TanStackRouterDevtoolsPanel />,
-						},
-					]}
-				/>
 				<Scripts />
 			</body>
 		</html>
