@@ -1,4 +1,8 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import {
+	createFileRoute,
+	useNavigate,
+	useRouter,
+} from "@tanstack/react-router";
 
 import { AppPageHeader } from "#/components/app-page-header";
 import { LangSmithConnectionForm } from "#/components/langsmith-connection-form";
@@ -9,6 +13,7 @@ export const Route = createFileRoute("/app/integrations/langsmith/new")({
 
 function ConnectLangSmith() {
 	const navigate = useNavigate();
+	const router = useRouter();
 	return (
 		<div className="max-w-2xl">
 			<AppPageHeader
@@ -16,7 +21,10 @@ function ConnectLangSmith() {
 				title="Connect LangSmith"
 			/>
 			<LangSmithConnectionForm
-				onConnected={() => void navigate({ to: "/app/integrations" })}
+				onConnected={async () => {
+					await router.invalidate();
+					await navigate({ to: "/app/integrations" });
+				}}
 			/>
 		</div>
 	);

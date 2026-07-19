@@ -1,27 +1,26 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { createFileRoute, Link, useRouter } from "@tanstack/react-router";
 
 import { AppPageHeader } from "#/components/app-page-header";
 import { LangSmithConnectionCard } from "#/components/langsmith-connection-card";
 import { primaryButton } from "#/components/ui";
-import type { LangSmithConnection } from "#/lib/langsmith";
 import { getLangSmithConnections } from "#/lib/langsmith.functions";
 
 export const Route = createFileRoute("/app/integrations/")({
+	loader: () => getLangSmithConnections(),
 	component: IntegrationsPage,
+	pendingComponent: () => (
+		<p className="mt-7 text-sm text-muted">Loading integrations…</p>
+	),
+	errorComponent: () => (
+		<p className="mt-6 text-sm text-danger" role="alert">
+			Could not load integrations.
+		</p>
+	),
 });
 
 function IntegrationsPage() {
-	const [connections, setConnections] = useState<LangSmithConnection[]>([]);
-	const [error, setError] = useState("");
-	const [loading, setLoading] = useState(true);
-
-	useEffect(() => {
-		void getLangSmithConnections()
-			.then(setConnections)
-			.catch(() => setError("Could not load integrations."))
-			.finally(() => setLoading(false));
-	}, []);
+	const connections = Route.useLoaderData();
+	const router = useRouter();
 
 	return (
 		<main>
@@ -34,30 +33,14 @@ function IntegrationsPage() {
 					</Link>
 				}
 			/>
-			{error ? (
-				<p className="mt-6 text-sm text-danger" role="alert">
-					{error}
-				</p>
-			) : null}
-			{loading ? (
-				<p className="mt-7 text-sm text-muted">Loading integrations…</p>
-			) : null}
-			{!loading && !connections.length ? <Empty /> : null}
+			{!connections.length ? <Empty /> : null}
 			<div className="mt-7 grid gap-4">
 				{connections.map((connection) => (
 					<LangSmithConnectionCard
 						key={connection.id}
 						connection={connection}
-						onChanged={(next) =>
-							setConnections((current) =>
-								current.map((item) => (item.id === next.id ? next : item)),
-							)
-						}
-						onDeleted={(id) =>
-							setConnections((current) =>
-								current.filter((item) => item.id !== id),
-							)
-						}
+						onChanged={() => void router.invalidate()}
+						onDeleted={() => void router.invalidate()}
 					/>
 				))}
 			</div>

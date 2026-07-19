@@ -7,9 +7,24 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
 const state = {
 	createBillingCheckout: vi.fn(),
-	getBillingStatus: vi.fn(),
 };
 let useAppSearch: () => string;
+let routeData: {
+	billing:
+		| {
+				plan: "free";
+				status: string;
+				scans_included: number;
+				scans_used_this_month: number;
+		  }
+		| {
+				plan: "pro";
+				status: string;
+				credits_remaining?: number;
+				current_period_end?: string;
+		  }
+		| null;
+};
 
 function SearchProbe() {
 	return <output aria-label="Current search">{useAppSearch()}</output>;
@@ -35,6 +50,7 @@ vi.mock("@tanstack/react-router", () => ({
 			{children}
 		</a>
 	),
+	getRouteApi: () => ({ useLoaderData: () => routeData }),
 	Outlet: () => <SearchProbe />,
 }));
 
@@ -86,27 +102,30 @@ mock.restore();
 beforeEach(() => {
 	assign.mockReset();
 	state.createBillingCheckout.mockReset();
-	state.getBillingStatus.mockReset();
+	routeData = {
+		billing: {
+			plan: "free",
+			status: "none",
+			scans_used_this_month: 0,
+			scans_included: 5,
+		},
+	};
 });
 
 afterEach(() => {
 	cleanup();
-	state.getBillingStatus.mockResolvedValue({
-		plan: "free",
-		status: "none",
-		scans_used_this_month: 0,
-		scans_included: 5,
-	});
 });
 
 describe("billing page", () => {
 	test("shows free usage and redirects upgrade checkout", async () => {
-		state.getBillingStatus.mockResolvedValue({
-			plan: "free",
-			status: "none",
-			scans_used_this_month: 2,
-			scans_included: 5,
-		});
+		routeData = {
+			billing: {
+				plan: "free",
+				status: "none",
+				scans_used_this_month: 2,
+				scans_included: 5,
+			},
+		};
 		state.createBillingCheckout.mockResolvedValue(
 			"https://checkout.test/session",
 		);
@@ -120,12 +139,14 @@ describe("billing page", () => {
 	});
 
 	test("shows pro credits and billing period", async () => {
-		state.getBillingStatus.mockResolvedValue({
-			plan: "pro",
-			status: "active",
-			credits_remaining: 42,
-			current_period_end: "2026-08-18T00:00:00Z",
-		});
+		routeData = {
+			billing: {
+				plan: "pro",
+				status: "active",
+				credits_remaining: 42,
+				current_period_end: "2026-08-18T00:00:00Z",
+			},
+		};
 		const view = render(<BillingPage />);
 
 		await waitFor(() => expect(view.getByText("42")).toBeTruthy());
@@ -133,8 +154,8 @@ describe("billing page", () => {
 		expect(view.queryByRole("button", { name: "Upgrade to Pro" })).toBeNull();
 	});
 
-	test("reports billing load and checkout failures", async () => {
-		state.getBillingStatus.mockRejectedValueOnce(new Error("offline"));
+	test("reports loader and checkout failures", async () => {
+		routeData = { billing: null };
 		const loadView = render(<BillingPage />);
 		await waitFor(() =>
 			expect(loadView.getByRole("alert").textContent).toContain(
@@ -143,12 +164,14 @@ describe("billing page", () => {
 		);
 		loadView.unmount();
 
-		state.getBillingStatus.mockResolvedValueOnce({
-			plan: "free",
-			status: "none",
-			scans_used_this_month: 0,
-			scans_included: 5,
-		});
+		routeData = {
+			billing: {
+				plan: "free",
+				status: "none",
+				scans_used_this_month: 0,
+				scans_included: 5,
+			},
+		};
 		state.createBillingCheckout.mockRejectedValueOnce(new Error("offline"));
 		const checkoutView = render(<BillingPage />);
 		await waitFor(() =>
@@ -167,28 +190,25 @@ describe("billing page", () => {
 	});
 });
 
-test("app nav shows billing link with current plan badge", async () => {
-	state.getBillingStatus.mockResolvedValue({
-		plan: "pro",
-		status: "active",
-		credits_remaining: 42,
-	});
+test("app nav shows loader-provided plan badge", () => {
 	const view = render(
-		<AppShell totalRoasts={3} user={{ email: "user@example.com" }} />,
+		<AppShell
+			plan="pro"
+			totalRoasts={3}
+			user={{ email: "user@example.com" }}
+		/>,
 	);
 
 	expect(view.getByRole("link", { name: /Billing/ }).getAttribute("href")).toBe(
 		"/app/billing",
 	);
-	await waitFor(() => expect(view.getByText("Pro")).toBeTruthy());
+	expect(view.getByText("Pro")).toBeTruthy();
 	fireEvent.change(view.getByLabelText("Search scans by title"), {
 		target: { value: "production" },
 	});
 	expect(view.getByLabelText("Current search").textContent).toBe("production");
 });
 
-test("keeps navigation usable when billing status is unavailable", async () => {
-	state.getBillingStatus.mockRejectedValueOnce(new Error("offline"));
-	render(<AppShell totalRoasts={0} user={{ email: "" }} />);
-	await waitFor(() => expect(state.getBillingStatus).toHaveBeenCalledTimes(1));
+test("keeps navigation usable when loader has no billing status", () => {
+	render(<AppShell plan={null} totalRoasts={0} user={{ email: "" }} />);
 });
