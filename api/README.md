@@ -3,7 +3,7 @@
 FastAPI backend for Helix. It owns trace assessment, redacted persistence,
 Supabase auth validation, report sharing, Dodo billing, and LangSmith sync.
 
-## Run
+## Run without Docker
 
 Requires Python 3.11+.
 

@@ -1,0 +1,12 @@
+.env
+.git
+.tanstack
+.wrangler
+dist
+node_modules
+api/.env
+api/.venv
+api/__pycache__
+api
+api/.pytest_cache
+**/__pycache__

@@ -24,7 +24,26 @@ PII findings are detection-only today; emails and phone numbers are not redacted
 Public report APIs exclude raw traces, owner data, batches, errors, and all
 LangSmith-sourced reports.
 
-## Run
+## Run with Docker
+
+Requires Docker Desktop (or Docker Engine with Compose). Helix uses your
+Supabase project; Compose starts the app services, not a replacement database.
+Before the first run, apply [`api/schema.sql`](api/schema.sql) to that Supabase
+project.
+
+```bash
+cp .env.example .env
+cp api/.env.example api/.env
+# Set Supabase values in both files.
+# For LangSmith, set the same INTERNAL_API_TOKEN in both files.
+# Keep service-role, OpenAI, Dodo, cron, and LangSmith API-key values in api/.env.
+docker compose up --build
+```
+
+Open `http://localhost:3000`. FastAPI health check: `http://localhost:8000/health`.
+Stop with `docker compose down`; start later with `docker compose up`.
+
+## Run without Docker
 
 Copy `api/.env.example` to `api/.env` and configure the backend values. The
 Start server also needs `API_URL`, `SUPABASE_URL`, and either
