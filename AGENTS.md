@@ -34,3 +34,4 @@ Rules:
 - Do not add dependencies without approval. Preserve Dodo's stable event id when retrying metering.
 - Schema changes need both `api/schema.sql` and a timestamped `supabase/migrations/` file.
 - Run relevant backend and frontend gates plus `git diff --check` before committing.
+- Every commit created or amended by Codex must append `Co-authored-by: Codex <codex@openai.com>` to its commit message.
