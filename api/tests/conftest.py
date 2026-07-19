@@ -14,7 +14,7 @@ class FakeQuery:
         self._limit: int | None = None
         self._update: dict[str, Any] | None = None
         self._order: tuple[str, bool] | None = None
-        self._upsert: tuple[dict[str, Any], tuple[str, ...]] | None = None
+        self._upsert: tuple[dict[str, Any], tuple[str, ...], bool] | None = None
         self._delete = False
 
     def select(self, *_: Any) -> "FakeQuery":
@@ -31,8 +31,10 @@ class FakeQuery:
         )
         return self
 
-    def upsert(self, row: dict[str, Any], *, on_conflict: str) -> "FakeQuery":
-        self._upsert = (row, tuple(on_conflict.split(",")))
+    def upsert(
+        self, row: dict[str, Any], *, on_conflict: str, ignore_duplicates: bool = False
+    ) -> "FakeQuery":
+        self._upsert = (row, tuple(on_conflict.split(",")), ignore_duplicates)
         return self
 
     def delete(self) -> "FakeQuery":
@@ -61,7 +63,7 @@ class FakeQuery:
 
     def execute(self) -> Any:
         if self._upsert is not None:
-            row, conflict_columns = self._upsert
+            row, conflict_columns, ignore_duplicates = self._upsert
             existing = next(
                 (
                     candidate
@@ -78,7 +80,7 @@ class FakeQuery:
                         **row,
                     }
                 )
-            else:
+            elif not ignore_duplicates:
                 existing.update(row)
         rows = [
             r
@@ -104,10 +106,15 @@ class FakeSupabase:
     def __init__(self) -> None:
         self.rows: list[dict[str, Any]] = []
         self.report_shares: list[dict[str, Any]] = []
+        self.usage_events: list[dict[str, Any]] = []
         self.auth = FakeAuth()
 
     def table(self, name: str) -> FakeQuery:
-        return FakeQuery(self.report_shares if name == "report_shares" else self.rows)
+        if name == "report_shares":
+            return FakeQuery(self.report_shares)
+        if name == "usage_events":
+            return FakeQuery(self.usage_events)
+        return FakeQuery(self.rows)
 
     def dump(self) -> str:
         return json.dumps(self.rows)
@@ -135,5 +142,5 @@ def fake_db(monkeypatch: pytest.MonkeyPatch) -> FakeSupabase:
     monkeypatch.setattr("app.routers.roasts.get_supabase", lambda: fake)
     monkeypatch.setattr("app.routers.me.get_supabase", lambda: fake)
     # never call OpenAI from tests; Luna failures must fall back cleanly.
-    monkeypatch.setattr("app.pipeline.generate_luna_assessment", lambda *args: None)
+    monkeypatch.setattr("app.assessment.generate_luna_assessment", lambda *args: None)
     return fake

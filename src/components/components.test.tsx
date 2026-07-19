@@ -10,7 +10,7 @@ if (typeof document === "undefined") {
 		jsdomErrors: ["css-parsing", "resource-loading", "unhandled-exception"],
 	});
 	const dom = new JSDOM("<!doctype html><html><body></body></html>", {
-		url: "https://roast0.test/r/hot-one",
+		url: "https://Flint.test/r/hot-one",
 		virtualConsole,
 	});
 	for (const key of [

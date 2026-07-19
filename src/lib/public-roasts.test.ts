@@ -116,7 +116,7 @@ describe("public roasts", () => {
 			model: "gpt-5.6-luna",
 			actions: [{ fix: "Rotate the key." }],
 		});
-		expect(formatShareText(roast, "https://roast0.dev/r/hot-one")).toContain(
+		expect(formatShareText(roast, "https://Flint.dev/r/hot-one")).toContain(
 			"12/100 · Charcoal · $0.50 waste found",
 		);
 		expect(publicRoastMeta(roast)).toEqual({

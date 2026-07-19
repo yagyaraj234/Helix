@@ -87,6 +87,7 @@ def _monthly_scan_count(db: Any, user_id: str) -> int:
         db.table("roasts")
         .select("id", count="exact")
         .eq("user_id", user_id)
+        .eq("status", "done")
         .gte("created_at", month_start.isoformat())
         .execute()
     )

@@ -1,18 +1,36 @@
-# Roast0
-Agent trace roast tool. Hackathon build. Read PLAN.md, execute one stage at a time.
+# Flint
 
-Architecture: FastAPI backend (`api/`) owns the whole pipeline (normalize → redact → analyze → score → Supabase). TanStack Start (`src/`) is frontend — it server-fetches roast data from FastAPI at `API_URL`. Frontend may use Supabase directly for auth + file storage only (publishable key only, never the `roasts` table).
+AI-agent trace assessment tool. Read `PLAN.md` before changing its frozen request/response contract.
+
+Architecture:
+
+- FastAPI (`api/`) owns trace assessment, Supabase access, payment rules, LangSmith sync, and every secret.
+- `api/app/assessment.py` owns parse → redact → analyze → score → detailed report. It returns a redacted assessment and never writes storage.
+- `api/app/pipeline.py` owns assessment persistence, ownership, and provenance. Failed batch rows remain redacted.
+- `api/app/billing/entitlements.py` owns Scan admission, Connection eligibility, and retryable Dodo metering. A completed Scan is the only billable outcome; Dodo failures stay pending and never fail a completed Scan.
+- `api/app/integrations/langsmith.py` owns the concrete LangSmith adapter plus `LangSmithConnections` lifecycle/sync module. Connections pause without Pro entitlement and resume only through an explicit user action.
+- TanStack Start (`src/`) server-fetches data from FastAPI at `API_URL`. Frontend may use Supabase only for auth and file storage, never the `roasts` table.
+
+Domain terms (`CONTEXT.md`):
+
+- Scan: one successfully completed trace assessment.
+- Batch: all requested Scans must fit entitlement before it starts.
+- Connection: an operator-controlled LangSmith project relationship.
 
 Commands:
-- backend: `cd api && uvicorn app.main:app --reload --port 8000`, tests: `cd api && pytest`
-- frontend: `bun dev`
+
+- backend: `cd api && ./.venv/bin/python -m uvicorn app.main:app --reload --port 8000`
+- backend tests: `cd api && ./.venv/bin/python -m pytest -q`
+- frontend dev: `bun dev`
+- frontend tests: `bun test`
+- frontend checks: `bun run check && bun run build`
 
 Rules:
-- backend: Python 3.11+, pydantic models, type hints everywhere; frontend: strict TS, no `any`
-- `api/app/normalize/` and `api/app/analyze/` are pure: no fastapi, no supabase, no network imports
-- API contract in PLAN.md is frozen; snake_case field names everywhere
-- acceptance check green before next stage, one commit per stage
-- deps are fixed per PLAN.md, ask before adding (`ragas` allowed in stage 7 only)
-- secrets live only in `api/.env`, server-only, never logged, never client-exposed; frontend env is only `API_URL`
-- 3-track work split in PLAN.md: exclusive file ownership per track, don't edit another track's files
-- no styling before stage 6
+
+- Backend: Python 3.11+, Pydantic request/response models, type hints everywhere. Frontend: strict TypeScript, no `any`.
+- `api/app/normalize/` and `api/app/analyze/` remain pure: no FastAPI, Supabase, or network imports.
+- Secrets stay server-only in `api/.env`; never log, return, or expose them. Frontend env is `API_URL` only.
+- Keep field names snake_case through FastAPI. Public roast reads must exclude raw trace, owner identity, batch data, errors, and LangSmith rows.
+- Do not add dependencies without approval. Preserve Dodo's stable event id when retrying metering.
+- Schema changes need both `api/schema.sql` and a timestamped `supabase/migrations/` file.
+- Run relevant backend and frontend gates plus `git diff --check` before committing.

@@ -1,6 +1,7 @@
 """LangSmith connection client, adapter, and bounded sync orchestration."""
 
 from collections import defaultdict
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from urllib.parse import urlparse
@@ -17,6 +18,12 @@ class LangSmithError(RuntimeError):
     def __init__(self, code: str) -> None:
         self.code = code
         super().__init__(code)
+
+
+@dataclass(frozen=True)
+class SyncResult:
+    scanned: int = 0
+    scan_slugs: tuple[str, ...] = ()
 
 
 def _endpoint(value: str) -> str:
@@ -418,11 +425,11 @@ def _children_by_trace(
         offset += len(page)
 
 
-def sync_connection(db: Any, connection_id: str) -> int:
+def sync_connection(db: Any, connection_id: str) -> SyncResult:
     now = _now()
     connection = _load_connection(db, connection_id)
     if not connection or connection.get("status") != "active" or not _acquire_lease(db, connection, now):
-        return 0
+        return SyncResult()
     finish_patch: dict[str, Any] = {
         "last_sync_finished_at": _now().isoformat(),
         "last_error": "sync_failed",
@@ -438,7 +445,7 @@ def sync_connection(db: Any, connection_id: str) -> int:
             str(connection["project_name"]),
         )
 
-        processed = 0
+        scan_slugs: list[str] = []
         page_failed = False
         for root in roots:
             trace_id = _string(root.get("trace_id"), _string(root.get("id")))
@@ -446,7 +453,7 @@ def sync_connection(db: Any, connection_id: str) -> int:
                 continue
             try:
                 trace = to_generic_trace(root, children_by_trace.get(trace_id, []))
-                run_pipeline(
+                scan_slugs.append(run_pipeline(
                     IngestRequest(
                         source="langsmith",
                         format="generic",
@@ -456,8 +463,7 @@ def sync_connection(db: Any, connection_id: str) -> int:
                     user_id=str(connection["user_id"]),
                     langsmith_connection_id=connection_id,
                     external_trace_id=trace_id,
-                )
-                processed += 1
+                ))
             except Exception:
                 # Keep the cursor behind this page so a pipeline failure retries from overlap.
                 page_failed = True
@@ -466,7 +472,7 @@ def sync_connection(db: Any, connection_id: str) -> int:
                 "last_sync_finished_at": _now().isoformat(),
                 "last_error": "pipeline_failed",
             }
-            return processed
+            return SyncResult(len(scan_slugs), tuple(scan_slugs))
         cursor_time, cursor_run_id = (
             _string(connection.get("cursor_time")),
             _string(connection.get("cursor_run_id")),
@@ -480,25 +486,69 @@ def sync_connection(db: Any, connection_id: str) -> int:
             "cursor_run_id": cursor_run_id or connection.get("cursor_run_id"),
             "last_sync_finished_at": _now().isoformat(),
             "last_success_at": _now().isoformat(),
-            "last_scan_count": processed,
+            "last_scan_count": len(scan_slugs),
             "last_error": None,
         }
-        return processed
+        return SyncResult(len(scan_slugs), tuple(scan_slugs))
     except LangSmithError as exc:
         finish_patch = {"last_sync_finished_at": _now().isoformat(), "last_error": exc.code}
         if exc.code == "invalid_key":
             finish_patch["status"] = "invalid"
-        return 0
+        return SyncResult()
     except (CredentialError, ValueError):
         finish_patch = {"last_sync_finished_at": _now().isoformat(), "last_error": "sync_failed"}
-        return 0
+        return SyncResult()
     except Exception:
         finish_patch = {"last_sync_finished_at": _now().isoformat(), "last_error": "sync_failed"}
-        return 0
+        return SyncResult()
     finally:
         _finish_sync(db, connection_id, finish_patch)
 
 
 def sync_active_connections(db: Any) -> int:
     rows = db.table("langsmith_connections").select("id").eq("status", "active").execute().data
-    return sum(sync_connection(db, str(row["id"])) for row in rows)
+    return sum(sync_connection(db, str(row["id"])).scanned for row in rows)
+
+
+class LangSmithConnections:
+    """Connection lifecycle and sync behavior behind one module interface."""
+
+    def __init__(self, db: Any) -> None:
+        self._db = db
+
+    def workspaces(self, endpoint: str, api_key: str) -> list[dict[str, Any]]:
+        return LangSmithClient(endpoint, api_key).list_workspaces()
+
+    def projects(self, endpoint: str, api_key: str, workspace_id: str) -> list[dict[str, Any]]:
+        return LangSmithClient(endpoint, api_key, workspace_id).list_projects()
+
+    def create(self, user_id: str, data: LangSmithConnectionCreate) -> LangSmithConnectionResponse:
+        validate_connection_scope(data.endpoint, data.api_key, data.workspace_id, data.project_name)
+        return create_connection(self._db, user_id, data)
+
+    def list(self, user_id: str) -> list[LangSmithConnectionResponse]:
+        return list_connections(self._db, user_id)
+
+    def update(
+        self, user_id: str, connection_id: str, data: LangSmithConnectionUpdate
+    ) -> LangSmithConnectionResponse | None:
+        current = get_connection_record(self._db, user_id, connection_id)
+        if not current:
+            return None
+        if any(value is not None for value in (data.endpoint, data.api_key, data.workspace_id, data.project_name)):
+            validate_connection_scope(
+                data.endpoint if data.endpoint is not None else str(current["endpoint"]),
+                data.api_key if data.api_key is not None else decrypt_credential(str(current["api_key_encrypted"])),
+                data.workspace_id if data.workspace_id is not None else str(current["workspace_id"]),
+                data.project_name if data.project_name is not None else str(current["project_name"]),
+            )
+        return update_connection(self._db, user_id, connection_id, data)
+
+    def get(self, user_id: str, connection_id: str) -> LangSmithConnectionResponse | None:
+        return get_connection(self._db, user_id, connection_id)
+
+    def sync(self, connection_id: str) -> SyncResult:
+        return sync_connection(self._db, connection_id)
+
+    def delete(self, user_id: str, connection_id: str) -> bool:
+        return delete_connection(self._db, user_id, connection_id)

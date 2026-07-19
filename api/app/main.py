@@ -6,7 +6,7 @@ from app.routers import billing, health, ingest, integrations, jobs, me, roasts
 
 settings = get_settings()
 
-app = FastAPI(title="Roast0 API")
+app = FastAPI(title="Flint API")
 
 app.add_middleware(
     CORSMiddleware,

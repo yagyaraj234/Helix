@@ -3,7 +3,7 @@
   "configVersion": 1,
   "workspaces": {
     "": {
-      "name": "roast0",
+      "name": "Flint",
       "dependencies": {
         "@supabase/ssr": "^0.12.3",
         "@supabase/supabase-js": "^2.110.7",

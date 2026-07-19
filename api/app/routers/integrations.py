@@ -5,20 +5,16 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
 
-from app.billing.dodo_client import ingest_usage_event
+from app.billing.entitlements import (
+    pause_connection_for_entitlement,
+    queue_completed_scans,
+    scan_entitlement,
+)
 from app.config import get_settings
 from app.db import get_supabase
 from app.integrations.langsmith import (
-    LangSmithClient,
+    LangSmithConnections,
     LangSmithError,
-    create_connection,
-    delete_connection,
-    get_connection,
-    get_connection_record,
-    list_connections,
-    sync_connection,
-    update_connection,
-    validate_connection_scope,
 )
 from app.models import (
     LangSmithConnectionCreate,
@@ -27,7 +23,7 @@ from app.models import (
     LangSmithDiscoverRequest,
     LangSmithValidateKeyRequest,
 )
-from app.security.credentials import CredentialError, decrypt_credential
+from app.security.credentials import CredentialError
 
 router = APIRouter(prefix="/integrations/langsmith", tags=["integrations"])
 
@@ -63,7 +59,7 @@ def _project(value: dict[str, Any]) -> dict[str, str]:
 @router.post("/validate-key")
 def validate_key(data: LangSmithValidateKeyRequest, _: UserId) -> dict[str, list[dict[str, str]]]:
     try:
-        rows = LangSmithClient(data.endpoint, data.api_key).list_workspaces()
+        rows = LangSmithConnections(get_supabase()).workspaces(data.endpoint, data.api_key)
     except LangSmithError as exc:
         raise _provider_error(exc) from exc
     except ValueError as exc:
@@ -74,7 +70,7 @@ def validate_key(data: LangSmithValidateKeyRequest, _: UserId) -> dict[str, list
 @router.post("/discover")
 def discover(data: LangSmithDiscoverRequest, _: UserId) -> dict[str, list[dict[str, str]]]:
     try:
-        rows = LangSmithClient(data.endpoint, data.api_key, data.workspace_id).list_projects()
+        rows = LangSmithConnections(get_supabase()).projects(data.endpoint, data.api_key, data.workspace_id)
     except LangSmithError as exc:
         raise _provider_error(exc) from exc
     except ValueError as exc:
@@ -85,10 +81,7 @@ def discover(data: LangSmithDiscoverRequest, _: UserId) -> dict[str, list[dict[s
 @router.post("", response_model=LangSmithConnectionResponse)
 def connect(data: LangSmithConnectionCreate, user_id: UserId) -> LangSmithConnectionResponse:
     try:
-        validate_connection_scope(
-            data.endpoint, data.api_key, data.workspace_id, data.project_name
-        )
-        return create_connection(get_supabase(), user_id, data)
+        return LangSmithConnections(get_supabase()).create(user_id, data)
     except LangSmithError as exc:
         raise _provider_error(exc) from exc
     except ValueError as exc:
@@ -97,33 +90,13 @@ def connect(data: LangSmithConnectionCreate, user_id: UserId) -> LangSmithConnec
 
 @router.get("", response_model=list[LangSmithConnectionResponse])
 def connections(user_id: UserId) -> list[LangSmithConnectionResponse]:
-    return list_connections(get_supabase(), user_id)
+    return LangSmithConnections(get_supabase()).list(user_id)
 
 
 @router.patch("/{connection_id}", response_model=LangSmithConnectionResponse)
 def patch_connection(connection_id: str, data: LangSmithConnectionUpdate, user_id: UserId) -> LangSmithConnectionResponse:
     try:
-        db = get_supabase()
-        current = get_connection_record(db, user_id, connection_id)
-        if not current:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found")
-        if any(
-            value is not None
-            for value in (data.endpoint, data.api_key, data.workspace_id, data.project_name)
-        ):
-            validate_connection_scope(
-                data.endpoint if data.endpoint is not None else str(current["endpoint"]),
-                data.api_key
-                if data.api_key is not None
-                else decrypt_credential(str(current["api_key_encrypted"])),
-                data.workspace_id
-                if data.workspace_id is not None
-                else str(current["workspace_id"]),
-                data.project_name
-                if data.project_name is not None
-                else str(current["project_name"]),
-            )
-        connection = update_connection(db, user_id, connection_id, data)
+        connection = LangSmithConnections(get_supabase()).update(user_id, connection_id, data)
     except HTTPException:
         raise
     except LangSmithError as exc:
@@ -143,40 +116,22 @@ def patch_connection(connection_id: str, data: LangSmithConnectionUpdate, user_i
 @router.post("/{connection_id}/sync")
 def sync(connection_id: str, user_id: UserId) -> dict[str, object]:
     db = get_supabase()
-    if not get_connection(db, user_id, connection_id):
+    connections = LangSmithConnections(db)
+    if not connections.get(user_id, connection_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found")
-    subscription = (
-        db.table("subscriptions")
-        .select("plan,dodo_customer_id")
-        .eq("user_id", user_id)
-        .limit(1)
-        .execute()
-        .data
-    )
-    if not subscription or subscription[0].get("plan") != "pro":
-        db.table("langsmith_connections").update(
-            {
-                "status": "paused",
-                "last_error": "Upgrade to Pro to enable automatic sync",
-            }
-        ).eq("id", connection_id).eq("user_id", user_id).execute()
-        count = 0
+    entitlement = scan_entitlement(db, user_id, 0)
+    if not entitlement.is_pro:
+        pause_connection_for_entitlement(db, connection_id, user_id)
+        result = connections.get(user_id, connection_id)
+        return {"scanned": 0, "connection": result.model_dump() if result else None}
     else:
-        count = sync_connection(db, connection_id)
-        customer_id = subscription[0].get("dodo_customer_id")
-        if isinstance(customer_id, str) and customer_id:
-            settings = get_settings()
-            for _ in range(count):
-                ingest_usage_event(
-                    customer_id,
-                    api_key=settings.dodo_api_key,
-                    environment=settings.dodo_environment,
-                )
-    connection = get_connection(db, user_id, connection_id)
-    return {"scanned": count, "connection": connection.model_dump() if connection else None}
+        sync_result = connections.sync(connection_id)
+        queue_completed_scans(db, entitlement, user_id, list(sync_result.scan_slugs))
+    connection = connections.get(user_id, connection_id)
+    return {"scanned": sync_result.scanned, "connection": connection.model_dump() if connection else None}
 
 
 @router.delete("/{connection_id}", status_code=status.HTTP_204_NO_CONTENT)
 def disconnect(connection_id: str, user_id: UserId) -> None:
-    if not delete_connection(get_supabase(), user_id, connection_id):
+    if not LangSmithConnections(get_supabase()).delete(user_id, connection_id):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Connection not found")

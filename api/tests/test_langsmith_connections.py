@@ -145,8 +145,8 @@ def test_sync_is_idempotent_and_releases_lease(monkeypatch: Any) -> None:
 
     monkeypatch.setattr(langsmith, "LangSmithClient", Client)
     monkeypatch.setattr(langsmith, "run_pipeline", pipeline)
-    assert langsmith.sync_connection(db, "connection-1") == 1
-    assert langsmith.sync_connection(db, "connection-1") == 0
+    assert langsmith.sync_connection(db, "connection-1").scanned == 1
+    assert langsmith.sync_connection(db, "connection-1").scanned == 0
     connection = db.rows["langsmith_connections"][0]
     assert len(db.rows["roasts"]) == 1
     assert connection["sync_locked_until"] is None
@@ -183,8 +183,12 @@ def test_overlap_pagination_reaches_roots_after_existing_traces(monkeypatch: Any
         def trace_runs(self, *_: Any) -> list[dict[str, Any]]: return []
 
     monkeypatch.setattr(langsmith, "LangSmithClient", Client)
-    monkeypatch.setattr(langsmith, "run_pipeline", lambda _request, **kwargs: db.rows["roasts"].append({"id": "roast-3", "langsmith_connection_id": kwargs["langsmith_connection_id"], "external_trace_id": kwargs["external_trace_id"]}))
-    assert langsmith.sync_connection(db, "connection-1") == 1
+    def pipeline(_request: IngestRequest, **kwargs: Any) -> str:
+        db.rows["roasts"].append({"id": "roast-3", "langsmith_connection_id": kwargs["langsmith_connection_id"], "external_trace_id": kwargs["external_trace_id"]})
+        return "roast-3"
+
+    monkeypatch.setattr(langsmith, "run_pipeline", pipeline)
+    assert langsmith.sync_connection(db, "connection-1").scanned == 1
     assert calls == [0, 2]
     assert db.rows["langsmith_connections"][0]["cursor_run_id"] == "run-3"
 
@@ -202,12 +206,12 @@ def test_manual_sync_skips_when_hourly_sync_holds_the_lease(monkeypatch: Any) ->
     class Client:
         def __init__(self, *_: Any) -> None: pass
         def completed_runs(self, *_: Any) -> list[dict[str, Any]]:
-            attempts.append(langsmith.sync_connection(db, "connection-1"))
+            attempts.append(langsmith.sync_connection(db, "connection-1").scanned)
             return []
         def trace_runs(self, *_: Any) -> list[dict[str, Any]]: return []
 
     monkeypatch.setattr(langsmith, "LangSmithClient", Client)
-    assert langsmith.sync_connection(db, "connection-1") == 0
+    assert langsmith.sync_connection(db, "connection-1").scanned == 0
     assert attempts == [0]
 
 
@@ -218,7 +222,7 @@ def test_held_lease_skips_sync(monkeypatch: Any) -> None:
         "id": "connection-1", "user_id": "user-1", "status": "active", "api_key_encrypted": encrypt_credential("key"),
         "sync_locked_until": (datetime.now(UTC) + timedelta(minutes=5)).isoformat(),
     })
-    assert langsmith.sync_connection(db, "connection-1") == 0
+    assert langsmith.sync_connection(db, "connection-1").scanned == 0
 
 
 def test_provider_failure_preserves_cursor_and_marks_invalid_key(monkeypatch: Any) -> None:
@@ -235,7 +239,7 @@ def test_provider_failure_preserves_cursor_and_marks_invalid_key(monkeypatch: An
         def completed_runs(self, *_: Any) -> list[dict[str, Any]]: raise langsmith.LangSmithError("invalid_key")
 
     monkeypatch.setattr(langsmith, "LangSmithClient", Client)
-    assert langsmith.sync_connection(db, "connection-1") == 0
+    assert langsmith.sync_connection(db, "connection-1").scanned == 0
     connection = db.rows["langsmith_connections"][0]
     assert connection["status"] == "invalid"
     assert connection["cursor_time"] == "2026-07-18T09:00:00+00:00"
@@ -255,7 +259,7 @@ def test_rate_limit_preserves_cursor_and_keeps_connection_active(monkeypatch: An
         def completed_runs(self, *_: Any) -> list[dict[str, Any]]: raise langsmith.LangSmithError("rate_limited")
 
     monkeypatch.setattr(langsmith, "LangSmithClient", Client)
-    assert langsmith.sync_connection(db, "connection-1") == 0
+    assert langsmith.sync_connection(db, "connection-1").scanned == 0
     connection = db.rows["langsmith_connections"][0]
     assert connection["status"] == "active"
     assert connection["last_error"] == "rate_limited"
@@ -278,7 +282,7 @@ def test_pipeline_failure_does_not_advance_cursor(monkeypatch: Any) -> None:
 
     monkeypatch.setattr(langsmith, "LangSmithClient", Client)
     monkeypatch.setattr(langsmith, "run_pipeline", lambda _: (_ for _ in ()).throw(RuntimeError("database unavailable")))
-    assert langsmith.sync_connection(db, "connection-1") == 0
+    assert langsmith.sync_connection(db, "connection-1").scanned == 0
     connection = db.rows["langsmith_connections"][0]
     assert connection["last_error"] == "pipeline_failed"
     assert connection["cursor_time"] == "2026-07-18T09:00:00+00:00"
@@ -302,7 +306,7 @@ def test_discovery_returns_safe_workspace_and_project_metadata(monkeypatch: Any)
         def list_projects(self) -> list[dict[str, Any]]:
             return [{"name": "support-agent", "api_key": "lsv2_secret"}]
 
-    monkeypatch.setattr("app.routers.integrations.LangSmithClient", Client)
+    monkeypatch.setattr("app.integrations.langsmith.LangSmithClient", Client)
     headers = {"x-internal-api-token": "internal", "x-user-id": "user-1"}
     validate = client.post(
         "/integrations/langsmith/validate-key",

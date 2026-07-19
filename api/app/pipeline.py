@@ -1,17 +1,10 @@
-"""Ingest pipeline: normalize -> redact -> analyze -> score -> insert, returns slug.
-
-Raises ValueError when no parser can extract spans; the ingest router maps
-that to a 422. Everything stored (raw_trace included) is post-redaction —
-the database never contains a secret.
-"""
+"""Persistence for completed trace assessments."""
 
 import secrets
 import uuid
 from typing import Any
 
-from app.analyze.cost import analyze_cost
-from app.analyze.roast import analyze_roast
-from app.analyze.score import score, tier
+from app.assessment import TraceAssessment, assess_trace
 from app.db import get_supabase
 from app.models import (
     BatchIngestRequest,
@@ -20,25 +13,13 @@ from app.models import (
     IngestRequest,
     Source,
 )
-from app.normalize import generic, openai_agents
-from app.normalize.redact import redact_trace, redact_value
-from app.roast_line import fallback_detailed_report, fallback_line, generate_luna_assessment
+from app.normalize.redact import redact_value
+from app.roast_line import fallback_detailed_report
 from app.types import CostReport, NormalizedTrace
 
 
 def make_slug() -> str:
     return secrets.token_urlsafe(8)[:8]
-
-
-def _parse(req: IngestRequest) -> NormalizedTrace:
-    if req.format == "openai-agents":
-        return openai_agents.parse(req.trace)
-    if req.format == "generic":
-        return generic.parse(req.trace)
-    try:
-        return openai_agents.parse(req.trace)
-    except ValueError:
-        return generic.parse(req.trace)
 
 
 def _insert_row(row: dict[str, Any]) -> None:
@@ -59,39 +40,31 @@ def _insert_row(row: dict[str, Any]) -> None:
         get_supabase().table("roasts").insert(legacy_row).execute()
 
 
-def run_pipeline(
-    req: IngestRequest,
+def persist_assessment(
+    assessment: TraceAssessment,
+    request: IngestRequest,
+    *,
     user_id: str | None = None,
     batch_id: str | None = None,
     title_override: str | None = None,
     langsmith_connection_id: str | None = None,
     external_trace_id: str | None = None,
 ) -> str:
-    trace = _parse(req)
-    redacted, hits = redact_trace(trace)
-    cost_findings, report = analyze_cost(redacted)
-    findings = [*analyze_roast(redacted, hits), *cost_findings]
-    score_value = score(findings)
-    tier_value = tier(score_value)
-    luna = generate_luna_assessment(findings, report, redacted, score_value, tier_value)
-    roast_line, detailed_report = (
-        luna if luna is not None else (fallback_line(tier_value), fallback_detailed_report(findings, report))
-    )
+    """Store one assessment with its ownership and provenance."""
 
     slug = make_slug()
     row: dict[str, Any] = {
         "slug": slug,
-        "title": title_override or req.title or redacted.workflow or "Untitled trace",
-        "source": req.source,
-        "raw_trace": redact_value(req.trace),
-        "normalized": redacted.model_dump(),
-        "findings": [f.model_dump() for f in findings],
-        "cost": report.model_dump(),
-        "score": score_value,
-        "tier": tier_value,
-        "roast_line": roast_line,
-        "detailed_report": detailed_report.model_dump(),
-        # pipeline is synchronous: a stored row is by definition done
+        "title": title_override or request.title or assessment.normalized.workflow or "Untitled trace",
+        "source": request.source,
+        "raw_trace": assessment.raw_trace,
+        "normalized": assessment.normalized.model_dump(),
+        "findings": [finding.model_dump() for finding in assessment.findings],
+        "cost": assessment.cost.model_dump(),
+        "score": assessment.score,
+        "tier": assessment.tier,
+        "roast_line": assessment.roast_line,
+        "detailed_report": assessment.detailed_report.model_dump(),
         "status": "done",
         "user_id": user_id,
         "batch_id": batch_id,
@@ -100,6 +73,25 @@ def run_pipeline(
     }
     _insert_row(row)
     return slug
+
+
+def run_pipeline(
+    req: IngestRequest,
+    user_id: str | None = None,
+    batch_id: str | None = None,
+    title_override: str | None = None,
+    langsmith_connection_id: str | None = None,
+    external_trace_id: str | None = None,
+) -> str:
+    return persist_assessment(
+        assess_trace(req),
+        req,
+        user_id=user_id,
+        batch_id=batch_id,
+        title_override=title_override,
+        langsmith_connection_id=langsmith_connection_id,
+        external_trace_id=external_trace_id,
+    )
 
 
 def _failed_batch_row(
@@ -154,10 +146,11 @@ def run_batch(req: BatchIngestRequest, user_id: str) -> BatchIngestResponse:
     for index, trace in enumerate(req.traces):
         single = IngestRequest(source=req.source, title=req.title, format=req.format, trace=trace)
         try:
-            parsed = _parse(single)
-            base_title = req.title or parsed.workflow or "Untitled trace"
+            assessment = assess_trace(single)
+            base_title = req.title or assessment.normalized.workflow or "Untitled trace"
             title = f"{base_title} {index + 1}" if multiple else base_title
-            slug = run_pipeline(
+            slug = persist_assessment(
+                assessment,
                 single,
                 user_id=user_id,
                 batch_id=batch_id,

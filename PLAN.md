@@ -1,8 +1,8 @@
-# Roast0: build plan (v2 — FastAPI backend)
+# Flint: build plan (v2 — FastAPI backend)
 
 TanStack Start (UI only) + FastAPI (backend) + Supabase. 5 hours. One repo, one table, one demo.
 
-Working name is Roast0. Do not spend hackathon time renaming it. You can bikeshed the name after you win.
+Working name is Flint. Do not spend hackathon time renaming it. You can bikeshed the name after you win.
 
 How to use this file: it lives at the repo root as PLAN.md, CLAUDE.md/AGENTS.md point at it. Tell your agent "execute stage N" — one stage per prompt, check the acceptance line before moving on. Don't dump all stages in one go, agents drift when you do that.
 
@@ -112,6 +112,7 @@ Three tracks with one interface between them (the API contract above + `types.py
 Merge discipline: Track A merges to main at end of stage 1 and stage 2; B and C rebase on it. File ownership is exclusive per track — if you need a change in another track's file, ask that person, don't edit it. The only shared files are this PLAN.md and the contract fixture, both owned by whoever Track A is.
 
 Integration checkpoints (whole team, 5 minutes each):
+
 - **T+1:15** — Track A stage 1 merged; Track B swaps stub for real normalize+redact.
 - **T+2:10** — Track A stage 2 merged; full pipeline live; Track C swaps fixture for live fetch.
 - **T+3:30** — first end-to-end run of a stage 5 agent script → card in browser. Everything after this is polish.

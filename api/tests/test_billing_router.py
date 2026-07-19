@@ -132,9 +132,10 @@ def test_free_status_counts_current_month_scans(billing_db: FakeDb) -> None:
     now = datetime.now(UTC)
     billing_db.rows["roasts"].extend(
         [
-            {"id": "current", "user_id": "user-1", "created_at": now.isoformat()},
-            {"id": "other", "user_id": "user-2", "created_at": now.isoformat()},
-            {"id": "old", "user_id": "user-1", "created_at": "2020-01-01T00:00:00+00:00"},
+            {"id": "current", "user_id": "user-1", "status": "done", "created_at": now.isoformat()},
+            {"id": "failed", "user_id": "user-1", "status": "failed", "created_at": now.isoformat()},
+            {"id": "other", "user_id": "user-2", "status": "done", "created_at": now.isoformat()},
+            {"id": "old", "user_id": "user-1", "status": "done", "created_at": "2020-01-01T00:00:00+00:00"},
         ]
     )
     response = client.get("/billing/status", headers=HEADERS)

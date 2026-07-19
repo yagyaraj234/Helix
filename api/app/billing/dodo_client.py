@@ -142,6 +142,7 @@ def ingest_usage_event(
     *,
     api_key: str,
     environment: str,
+    event_id: str | None = None,
 ) -> None:
     """Send one idempotent usage event to Dodo."""
 
@@ -154,7 +155,7 @@ def ingest_usage_event(
             "events": [
                 {
                     "customer_id": dodo_customer_id,
-                    "event_id": str(uuid4()),
+                    "event_id": event_id or str(uuid4()),
                     "event_name": event_name,
                 }
             ]

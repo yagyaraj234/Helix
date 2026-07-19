@@ -274,7 +274,7 @@ function LandingPage() {
 					<Logo inverse />
 					<p>Flint. Security scanning for AI agent traces.</p>
 					<a
-						href="https://github.com/yagyaraj234/roast0"
+						href="https://github.com/yagyaraj234/Flint"
 						target="_blank"
 						rel="noreferrer"
 					>

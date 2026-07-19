@@ -7,6 +7,9 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.models import BatchIngestResponse, BatchIngestResult
+from app.billing import entitlements
+from app.billing.dodo_client import DodoError
+from app.integrations import langsmith
 from app.routers import ingest, integrations, jobs
 
 AUTH_HEADERS = {"Authorization": "Bearer good-token-user-1"}
@@ -21,6 +24,8 @@ class Query:
         self.filters: list[tuple[str, Any]] = []
         self.limit_value: int | None = None
         self.patch: dict[str, Any] | None = None
+        self.upsert_row: dict[str, Any] | None = None
+        self.ignore_duplicates = False
 
     def select(self, *_: Any, **__: Any) -> "Query":
         return self
@@ -37,7 +42,21 @@ class Query:
         self.patch = patch
         return self
 
+    def upsert(self, row: dict[str, Any], **kwargs: Any) -> "Query":
+        self.upsert_row = row
+        self.ignore_duplicates = bool(kwargs.get("ignore_duplicates"))
+        return self
+
     def execute(self) -> Any:
+        if self.upsert_row is not None:
+            existing = next(
+                (row for row in self.db.rows[self.table] if row.get("roast_slug") == self.upsert_row.get("roast_slug")),
+                None,
+            )
+            if existing is None:
+                self.db.rows[self.table].append({"id": f"{self.table}-{len(self.db.rows[self.table]) + 1}", **self.upsert_row})
+            elif not self.ignore_duplicates:
+                existing.update(self.upsert_row)
         rows = [
             row
             for row in self.db.rows[self.table]
@@ -64,6 +83,7 @@ class FakeDb:
             "subscriptions": [],
             "roasts": [],
             "langsmith_connections": [],
+            "usage_events": [],
         }
         self.auth = Auth()
 
@@ -83,7 +103,7 @@ def db(monkeypatch: pytest.MonkeyPatch) -> FakeDb:
     monkeypatch.setattr("app.auth.get_supabase", lambda: fake)
     monkeypatch.setattr(integrations, "get_supabase", lambda: fake)
     monkeypatch.setattr(jobs, "get_supabase", lambda: fake)
-    monkeypatch.setattr(ingest, "get_settings", lambda: settings)
+    monkeypatch.setattr(entitlements, "get_settings", lambda: settings)
     monkeypatch.setattr(jobs, "get_settings", lambda: settings)
     return fake
 
@@ -92,6 +112,7 @@ def _scan(user_id: str = "user-1") -> dict[str, str]:
     return {
         "user_id": user_id,
         "created_at": datetime.now(UTC).isoformat(),
+        "status": "done",
     }
 
 
@@ -114,14 +135,10 @@ def test_free_ingest_quota_and_anonymous_bypass(
 ) -> None:
     db.rows["roasts"] = [_scan() for _ in range(5)]
     pipeline_users: list[str | None] = []
-    dodo_calls: list[object] = []
     monkeypatch.setattr(
         ingest,
         "run_pipeline",
         lambda _req, user_id=None: pipeline_users.append(user_id) or "slug1234",
-    )
-    monkeypatch.setattr(
-        ingest, "ingest_usage_event", lambda *_args, **_kwargs: dodo_calls.append(True)
     )
 
     blocked = client.post(
@@ -137,7 +154,6 @@ def test_free_ingest_quota_and_anonymous_bypass(
     anonymous = client.post("/ingest", json={"source": "upload", "trace": {}})
     assert anonymous.status_code == 200
     assert pipeline_users == [None]
-    assert dodo_calls == []
 
 
 def test_free_ingest_under_quota_succeeds(
@@ -150,17 +166,26 @@ def test_free_ingest_under_quota_succeeds(
         "run_pipeline",
         lambda _req, user_id=None: calls.append(str(user_id)) or "slug1234",
     )
-    monkeypatch.setattr(
-        ingest,
-        "ingest_usage_event",
-        lambda *_args, **_kwargs: pytest.fail("free scan emitted Dodo usage"),
-    )
 
     response = client.post(
         "/ingest", json={"source": "upload", "trace": {}}, headers=AUTH_HEADERS
     )
     assert response.status_code == 200
     assert calls == ["user-1"]
+
+
+def test_failed_rows_do_not_consume_free_scan_capacity(
+    db: FakeDb, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    db.rows["roasts"] = [_scan() for _ in range(5)]
+    db.rows["roasts"][-1]["status"] = "failed"
+    monkeypatch.setattr(ingest, "run_pipeline", lambda *_args, **_kwargs: "slug1234")
+
+    response = client.post(
+        "/ingest", json={"source": "upload", "trace": {}}, headers=AUTH_HEADERS
+    )
+
+    assert response.status_code == 200
 
 
 def test_batch_quota_reserves_every_requested_scan(
@@ -210,7 +235,7 @@ def test_pro_ingest_and_successful_batch_results_emit_usage(
         ),
     )
     monkeypatch.setattr(
-        ingest,
+        entitlements,
         "ingest_usage_event",
         lambda customer_id, **kwargs: dodo_calls.append((customer_id, kwargs)),
     )
@@ -225,11 +250,58 @@ def test_pro_ingest_and_successful_batch_results_emit_usage(
     )
     assert single.status_code == 200
     assert batch.status_code == 200
-    assert dodo_calls == [
-        ("customer-1", {"api_key": "dodo-key", "environment": "test_mode"}),
-        ("customer-1", {"api_key": "dodo-key", "environment": "test_mode"}),
-        ("customer-1", {"api_key": "dodo-key", "environment": "test_mode"}),
-    ]
+    assert [customer_id for customer_id, _ in dodo_calls] == ["customer-1"] * 3
+    assert all(call[1]["event_id"] for call in dodo_calls)
+    assert {event["status"] for event in db.rows["usage_events"]} == {"sent"}
+
+
+def test_metering_failure_keeps_completed_scan_pending(
+    db: FakeDb, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    db.rows["subscriptions"].append(
+        {"user_id": "user-1", "plan": "pro", "dodo_customer_id": "customer-1"}
+    )
+    monkeypatch.setattr(ingest, "run_pipeline", lambda *_args, **_kwargs: "slug1234")
+    monkeypatch.setattr(
+        entitlements,
+        "ingest_usage_event",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(DodoError("provider_unavailable")),
+    )
+
+    response = client.post(
+        "/ingest", json={"source": "upload", "trace": {}}, headers=AUTH_HEADERS
+    )
+
+    assert response.status_code == 200
+    assert len(db.rows["usage_events"]) == 1
+    event = db.rows["usage_events"][0]
+    assert event["status"] == "pending"
+    assert event["attempts"] == 1
+    assert event["last_error"] == "provider_unavailable"
+
+
+def test_metering_retry_preserves_the_original_dodo_event_id(
+    db: FakeDb, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    entitlement = entitlements.ScanEntitlement("pro", "customer-1", 0, None)
+    sent_event_ids: list[str] = []
+    monkeypatch.setattr(
+        entitlements,
+        "ingest_usage_event",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(DodoError("provider_unavailable")),
+    )
+    entitlements.queue_completed_scans(db, entitlement, "user-1", ["slug1234"])
+    original_event_id = db.rows["usage_events"][0]["event_id"]
+    monkeypatch.setattr(
+        entitlements,
+        "ingest_usage_event",
+        lambda *_args, **kwargs: sent_event_ids.append(kwargs["event_id"]),
+    )
+
+    entitlements.queue_completed_scans(db, entitlement, "user-1", ["slug1234"])
+
+    assert sent_event_ids == [original_event_id]
+    assert db.rows["usage_events"][0]["status"] == "sent"
 
 
 def test_hourly_sync_pauses_free_and_syncs_pro(
@@ -250,10 +322,10 @@ def test_hourly_sync_pauses_free_and_syncs_pro(
     monkeypatch.setattr(
         jobs,
         "sync_connection",
-        lambda _db, connection_id: synced.append(connection_id) or 3,
+        lambda _db, connection_id: synced.append(connection_id) or langsmith.SyncResult(3, ("one", "two", "three")),
     )
     monkeypatch.setattr(
-        jobs,
+        entitlements,
         "ingest_usage_event",
         lambda customer_id, **_kwargs: dodo_calls.append(customer_id),
     )
@@ -282,12 +354,12 @@ def test_manual_sync_no_ops_free_and_syncs_pro(
     synced: list[str] = []
     dodo_calls: list[str] = []
     monkeypatch.setattr(
-        integrations,
+        langsmith,
         "sync_connection",
-        lambda _db, connection_id: synced.append(connection_id) or 2,
+        lambda _db, connection_id: synced.append(connection_id) or langsmith.SyncResult(2, ("one", "two")),
     )
     monkeypatch.setattr(
-        integrations,
+        entitlements,
         "ingest_usage_event",
         lambda customer_id, **_kwargs: dodo_calls.append(customer_id),
     )
