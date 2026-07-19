@@ -1,30 +1,20 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { createFileRoute, getRouteApi } from "@tanstack/react-router";
+import { useState } from "react";
 
 import { AppPageHeader } from "#/components/app-page-header";
 import { primaryButton } from "#/components/ui";
-import {
-	type BillingStatus,
-	createBillingCheckout,
-	getBillingStatus,
-} from "#/lib/billing.functions";
+import { createBillingCheckout } from "#/lib/billing.functions";
+
+const appRoute = getRouteApi("/app");
 
 export const Route = createFileRoute("/app/billing")({
 	component: BillingPage,
 });
 
 export function BillingPage() {
-	const [billing, setBilling] = useState<BillingStatus | null>(null);
+	const { billing } = appRoute.useLoaderData();
 	const [error, setError] = useState("");
-	const [loading, setLoading] = useState(true);
 	const [upgrading, setUpgrading] = useState(false);
-
-	useEffect(() => {
-		void getBillingStatus()
-			.then(setBilling)
-			.catch(() => setError("Could not load billing."))
-			.finally(() => setLoading(false));
-	}, []);
 
 	async function upgrade() {
 		setError("");
@@ -43,13 +33,10 @@ export function BillingPage() {
 				title="Billing"
 				description="Manage your plan and monthly usage."
 			/>
-			{error ? (
+			{error || !billing ? (
 				<p className="mt-6 text-sm text-danger" role="alert">
-					{error}
+					{error || "Could not load billing."}
 				</p>
-			) : null}
-			{loading ? (
-				<p className="mt-7 text-sm text-muted">Loading billing…</p>
 			) : null}
 			{billing ? (
 				<section

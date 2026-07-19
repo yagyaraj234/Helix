@@ -38,6 +38,10 @@ const state = {
 		requireAccessToken: vi.fn(),
 		requireAuthenticatedUser: vi.fn(),
 	},
+	billing: {
+		getBillingStatus: vi.fn(),
+	},
+	query: vi.fn(),
 	routes: new Map<string, { options: Record<string, unknown> }>(),
 	navigate: vi.fn(),
 	routeData: [] as unknown,
@@ -73,12 +77,24 @@ vi.mock("@tanstack/react-router", () => ({
 		<a href="/">{children}</a>
 	),
 	Outlet: () => null,
+	Navigate: ({ params, to }: { params: unknown; to: string }) => {
+		void state.navigate({ params, to });
+		return null;
+	},
 	getRouteApi: () => ({
 		useLoaderData: () => state.routeData,
 		useRouteContext: () => ({ user: { email: "user@helix.test" } }),
 	}),
 	redirect: (options: unknown) => ({ options }),
 	useNavigate: () => state.navigate,
+	useRouter: () => ({ invalidate: vi.fn() }),
+}));
+
+vi.mock("@tanstack/react-query", () => ({
+	useQuery: (options: { initialData: unknown }) => {
+		state.query(options);
+		return { data: options.initialData, error: null };
+	},
 }));
 
 vi.mock("@tanstack/react-start", () => ({
@@ -102,6 +118,7 @@ vi.mock("@tanstack/react-start", () => ({
 }));
 
 vi.mock("#/lib/api", () => state.api);
+vi.mock("#/lib/billing.functions", () => state.billing);
 vi.mock("#/lib/supabase-auth.server", () => state.auth);
 vi.mock("@tanstack/react-start/server", () => state.server);
 
@@ -158,9 +175,11 @@ const ownerRoast = {
 beforeEach(() => {
 	for (const fn of Object.values(state.api)) fn.mockReset();
 	for (const fn of Object.values(state.auth)) fn.mockReset();
+	for (const fn of Object.values(state.billing)) fn.mockReset();
 	for (const fn of Object.values(providerAuth)) fn.mockReset();
 	for (const fn of Object.values(state.server)) fn.mockReset();
 	state.navigate.mockReset();
+	state.query.mockReset();
 	state.routeData = [];
 	state.routeParams = {};
 	state.auth.requireAccessToken.mockResolvedValue("access-token");
@@ -176,6 +195,12 @@ beforeEach(() => {
 	state.auth.requireAuthenticatedUser.mockResolvedValue({ id: "user-id" });
 	state.api.getMyRoasts.mockResolvedValue([]);
 	state.api.getRecentRoasts.mockResolvedValue([]);
+	state.billing.getBillingStatus.mockResolvedValue({
+		plan: "free",
+		status: "none",
+		scans_included: 5,
+		scans_used_this_month: 0,
+	});
 	delete process.env.INGEST_TOKEN;
 });
 
@@ -737,7 +762,7 @@ describe("scan route components", () => {
 		expect(view.container.textContent).toContain("8");
 	});
 
-	test("reports polling failures while a batch is processing", async () => {
+	test("polls processing batches through React Query only", () => {
 		const BatchStatus = state.routes.get("/app/scans/batches/$batch")?.options
 			.component as () => JSX.Element;
 		state.routeParams = { batch: "123e4567-e89b-42d3-a456-426614174000" };
@@ -752,30 +777,20 @@ describe("scan route components", () => {
 				findingCounts: { critical: 0, warning: 0, notice: 0 },
 			},
 		];
-		state.api.getMyRoasts.mockRejectedValueOnce(new Error("offline"));
-		const originalSetInterval = window.setInterval;
-		let poll: (() => Promise<void>) | undefined;
-		Object.defineProperty(window, "setInterval", {
-			configurable: true,
-			value: (callback: () => Promise<void>) => {
-				poll = callback;
-				return 1;
-			},
-		});
-		try {
-			const view = render(<BatchStatus />);
-			await poll?.();
-			await waitFor(() =>
-				expect(view.getByRole("alert").textContent).toContain(
-					"Could not refresh batch status.",
-				),
-			);
-		} finally {
-			Object.defineProperty(window, "setInterval", {
-				configurable: true,
-				value: originalSetInterval,
-			});
-		}
+		render(<BatchStatus />);
+		const options = state.query.mock.calls[0]?.[0] as {
+			refetchInterval: (query: {
+				state: { data: typeof state.routeData };
+			}) => number | false;
+		};
+		expect(options.refetchInterval({ state: { data: state.routeData } })).toBe(
+			1_500,
+		);
+		expect(
+			options.refetchInterval({
+				state: { data: [{ ...state.routeData[0], status: "done" }] },
+			}),
+		).toBe(false);
 	});
 
 	test("renders each batch status and takes single completed scans to their report", async () => {

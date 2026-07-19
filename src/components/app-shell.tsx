@@ -7,9 +7,8 @@ import {
 	ScanSearch,
 	UserRound,
 } from "lucide-react";
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useState } from "react";
 
-import { getBillingStatus } from "#/lib/billing.functions";
 import { Logo } from "./brand";
 
 const SearchContext = createContext("");
@@ -28,20 +27,16 @@ export function useAppSearch() {
 }
 
 export function AppShell({
+	plan,
 	totalRoasts,
 	user,
 }: {
+	plan: "free" | "pro" | null;
 	totalRoasts: number;
 	user: { email: string };
 }) {
 	const [search, setSearch] = useState("");
-	const [plan, setPlan] = useState<"free" | "pro" | null>(null);
 	const initial = user.email.slice(0, 1).toUpperCase() || "R";
-	useEffect(() => {
-		void getBillingStatus()
-			.then((billing) => setPlan(billing.plan))
-			.catch(() => undefined);
-	}, []);
 
 	return (
 		<SearchContext.Provider value={search}>

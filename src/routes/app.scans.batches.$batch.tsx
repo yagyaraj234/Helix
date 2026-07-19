@@ -1,12 +1,11 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
+import { createFileRoute, Link, Navigate } from "@tanstack/react-router";
 import {
 	ArrowUpRight,
 	CheckCircle2,
 	CircleX,
 	LoaderCircle,
 } from "lucide-react";
-import { useEffect, useState } from "react";
-
 import { AppPageHeader } from "#/components/app-page-header";
 import { SeverityCounts } from "#/components/roast-table";
 import { loadBatch } from "#/lib/roast-functions";
@@ -20,36 +19,26 @@ export const Route = createFileRoute("/app/scans/batches/$batch")({
 function BatchStatus() {
 	const initialRows = Route.useLoaderData();
 	const { batch } = Route.useParams();
-	const navigate = useNavigate();
-	const [rows, setRows] = useState<BatchRoast[]>(initialRows);
-	const [error, setError] = useState("");
+	const query = useQuery({
+		queryKey: ["batch", batch],
+		queryFn: () => loadBatch({ data: { batchId: batch } }),
+		initialData: initialRows,
+		staleTime: Number.POSITIVE_INFINITY,
+		retry: false,
+		refetchInterval: ({ state }) =>
+			state.data?.some((row) => row.status === "processing") ? 1_500 : false,
+	});
+	const rows: BatchRoast[] = query.data;
 	const settled =
 		rows.length > 0 && rows.every((row) => row.status !== "processing");
+	const completedRow =
+		rows.length === 1 && rows[0]?.status === "done" ? rows[0] : null;
 
-	useEffect(() => {
-		if (settled || rows.length === 0) return;
-		let active = true;
-		const timer = window.setInterval(async () => {
-			try {
-				const nextRows = await loadBatch({ data: { batchId: batch } });
-				if (active) setRows(nextRows);
-			} catch {
-				if (active) setError("Could not refresh batch status.");
-			}
-		}, 1_500);
-
-		return () => {
-			active = false;
-			window.clearInterval(timer);
-		};
-	}, [batch, rows.length, settled]);
-
-	useEffect(() => {
-		const row = rows.length === 1 ? rows[0] : undefined;
-		if (row?.status === "done") {
-			void navigate({ to: "/app/scans/$slug", params: { slug: row.slug } });
-		}
-	}, [navigate, rows]);
+	if (completedRow) {
+		return (
+			<Navigate to="/app/scans/$slug" params={{ slug: completedRow.slug }} />
+		);
+	}
 
 	return (
 		<main>
@@ -62,12 +51,12 @@ function BatchStatus() {
 				title="Scan status"
 			/>
 
-			{error && (
+			{query.error && (
 				<p
 					className="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-danger"
 					role="alert"
 				>
-					{error}
+					Could not refresh batch status.
 				</p>
 			)}
 			{rows.length === 0 ? (
