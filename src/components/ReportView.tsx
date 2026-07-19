@@ -4,7 +4,7 @@ import {
 	type PublicFindingCategory,
 	type PublicRoast,
 } from "../lib/public-roasts";
-import { fixForFinding } from "./RoastCard";
+import { fixForFinding, groupFindings } from "./RoastCard";
 import { ShareButtons } from "./ShareButtons";
 import { ShareDialog } from "./ShareDialog";
 import { monoLabel } from "./ui";
@@ -85,9 +85,9 @@ function spanMeta(
 export function ReportView({ roast }: { roast: PublicRoast }) {
 	const line = roast.roastLine ?? fallbackRoastLine(roast.tier);
 	const findingGroups = categoryOrder.flatMap((category) => {
-		const findings = roast.findings
-			.filter((finding) => finding.category === category)
-			.sort((left, right) => right.severity - left.severity);
+		const findings = groupFindings(roast.findings)
+			.filter(({ finding }) => finding.category === category)
+			.sort((left, right) => right.finding.severity - left.finding.severity);
 		return findings.length > 0 ? [{ category, findings }] : [];
 	});
 	const remediationActions =
@@ -142,114 +142,6 @@ export function ReportView({ roast }: { roast: PublicRoast }) {
 
 			<section
 				className="border-t border-line py-9 opacity-0 animate-enter [animation-delay:40ms]"
-				aria-labelledby="report-summary-heading"
-			>
-				<p className={`${monoLabel} text-muted`}>Executive summary</p>
-				<h2
-					className="mt-2 mb-5 text-2xl font-semibold tracking-[-0.02em]"
-					id="report-summary-heading"
-				>
-					Assessment
-				</h2>
-				<p className="text-[17px] leading-[1.7]">
-					{roast.detailedReport.summary}
-				</p>
-				{!roast.detailedReport.generated && (
-					<p className="mt-3.5 text-xs leading-relaxed text-muted">
-						Generated assessment unavailable. This summary uses deterministic
-						trace findings.
-					</p>
-				)}
-			</section>
-
-			<section
-				className="border-t border-line py-9 opacity-0 animate-enter [animation-delay:80ms]"
-				aria-labelledby="report-findings-heading"
-			>
-				<p className={`${monoLabel} text-muted`}>Evidence</p>
-				<h2
-					className="mt-2 mb-5 text-2xl font-semibold tracking-[-0.02em]"
-					id="report-findings-heading"
-				>
-					Findings
-				</h2>
-				{findingGroups.length > 0 ? (
-					<div className="grid gap-7">
-						{findingGroups.map(({ category, findings }) => (
-							<section key={category} aria-labelledby={`category-${category}`}>
-								<h3
-									className="mb-2.5 font-mono text-[10px] uppercase tracking-[0.1em] text-muted"
-									id={`category-${category}`}
-								>
-									{category}
-								</h3>
-								<ul className="border-t border-line">
-									{findings.map((finding) => (
-										<li
-											className="grid gap-2.5 border-b border-line py-4 sm:grid-cols-[138px_minmax(0,1fr)] sm:gap-4.5"
-											key={`${finding.rule}-${finding.message}-${finding.severity}`}
-										>
-											<div className="flex flex-wrap items-start gap-2 sm:flex-col">
-												<span
-													className={`rounded-full border px-2 py-0.5 font-mono text-[9px] font-semibold ${severityStyles[severityLabel(finding.severity)]}`}
-												>
-													{severityLabel(finding.severity)}
-												</span>
-												<code className="font-mono text-[10px] break-anywhere text-muted">
-													{finding.rule}
-												</code>
-											</div>
-											<p className="text-sm leading-relaxed">
-												{finding.message}
-											</p>
-										</li>
-									))}
-								</ul>
-							</section>
-						))}
-					</div>
-				) : (
-					<p className="text-xs text-muted">
-						No material findings in this trace.
-					</p>
-				)}
-			</section>
-
-			<section
-				className="border-t border-line py-9 opacity-0 animate-enter [animation-delay:120ms]"
-				aria-labelledby="report-actions-heading"
-			>
-				<p className={`${monoLabel} text-muted`}>Remediation</p>
-				<h2
-					className="mt-2 mb-5 text-2xl font-semibold tracking-[-0.02em]"
-					id="report-actions-heading"
-				>
-					Recommended actions
-				</h2>
-				{remediationActions.length > 0 ? (
-					<div className="grid gap-4.5">
-						{remediationActions.map((action) => (
-							<dl
-								className="relative grid gap-3.5 rounded-lg border border-line bg-paper p-5.5"
-								key={`${action.rule}-${action.issue}-${action.fix}`}
-							>
-								<ActionRow label="Issue" value={action.issue} />
-								<ActionRow label="Impact" value={action.impact} />
-								<ActionRow label="Fix" value={action.fix} />
-								<ActionRow label={action.detailLabel} value={action.detail} />
-								<code className="font-mono text-[10px] break-anywhere text-muted sm:absolute sm:top-5.5 sm:right-5.5">
-									{action.rule}
-								</code>
-							</dl>
-						))}
-					</div>
-				) : (
-					<p className="text-xs text-muted">No remediation actions required.</p>
-				)}
-			</section>
-
-			<section
-				className="border-t border-line py-9 opacity-0 animate-enter [animation-delay:160ms]"
 				aria-labelledby="report-cost-heading"
 			>
 				<p className={`${monoLabel} text-muted`}>
@@ -293,6 +185,119 @@ export function ReportView({ roast }: { roast: PublicRoast }) {
 						Dollar totals exclude unpriced models:{" "}
 						{roast.cost.unpricedModels.join(", ")}.
 					</p>
+				)}
+			</section>
+
+			<section
+				className="border-t border-line py-9 opacity-0 animate-enter [animation-delay:80ms]"
+				aria-labelledby="report-summary-heading"
+			>
+				<p className={`${monoLabel} text-muted`}>Executive summary</p>
+				<h2
+					className="mt-2 mb-5 text-2xl font-semibold tracking-[-0.02em]"
+					id="report-summary-heading"
+				>
+					Assessment
+				</h2>
+				<p className="text-[17px] leading-[1.7]">
+					{roast.detailedReport.summary}
+				</p>
+				{!roast.detailedReport.generated && (
+					<p className="mt-3.5 text-xs leading-relaxed text-muted">
+						Generated assessment unavailable. This summary uses deterministic
+						trace findings.
+					</p>
+				)}
+			</section>
+
+			<section
+				className="border-t border-line py-9 opacity-0 animate-enter [animation-delay:120ms]"
+				aria-labelledby="report-findings-heading"
+			>
+				<p className={`${monoLabel} text-muted`}>Evidence</p>
+				<h2
+					className="mt-2 mb-5 text-2xl font-semibold tracking-[-0.02em]"
+					id="report-findings-heading"
+				>
+					Findings
+				</h2>
+				{findingGroups.length > 0 ? (
+					<div className="grid gap-7">
+						{findingGroups.map(({ category, findings }) => (
+							<section key={category} aria-labelledby={`category-${category}`}>
+								<h3
+									className="mb-2.5 font-mono text-[10px] uppercase tracking-[0.1em] text-muted"
+									id={`category-${category}`}
+								>
+									{category}
+								</h3>
+								<ul className="border-t border-line">
+									{findings.map(({ count, finding, key }) => (
+										<li
+											className="grid gap-2.5 border-b border-line py-4 sm:grid-cols-[138px_minmax(0,1fr)] sm:gap-4.5"
+											key={key}
+										>
+											<div className="flex flex-wrap items-start gap-2 sm:flex-col">
+												<span
+													className={`rounded-full border px-2 py-0.5 font-mono text-[9px] font-semibold ${severityStyles[severityLabel(finding.severity)]}`}
+												>
+													{severityLabel(finding.severity)}
+												</span>
+												<code className="font-mono text-[10px] break-anywhere text-muted">
+													{finding.rule}
+												</code>
+												{count > 1 ? (
+													<span className="rounded-full border border-accent/40 px-2 py-0.5 font-mono text-[9px] font-semibold text-accent">
+														Seen {count}×
+													</span>
+												) : null}
+											</div>
+											<p className="text-sm leading-relaxed">
+												{finding.message}
+											</p>
+										</li>
+									))}
+								</ul>
+							</section>
+						))}
+					</div>
+				) : (
+					<p className="text-xs text-muted">
+						No material findings in this trace.
+					</p>
+				)}
+			</section>
+
+			<section
+				className="border-t border-line py-9 opacity-0 animate-enter [animation-delay:160ms]"
+				aria-labelledby="report-actions-heading"
+			>
+				<p className={`${monoLabel} text-muted`}>Remediation</p>
+				<h2
+					className="mt-2 mb-5 text-2xl font-semibold tracking-[-0.02em]"
+					id="report-actions-heading"
+				>
+					Recommended actions
+				</h2>
+				{remediationActions.length > 0 ? (
+					<div className="grid gap-4.5">
+						{remediationActions.map((action) => (
+							<dl
+								className="relative grid gap-3.5 rounded-lg border border-line bg-paper p-5.5"
+								key={`${action.rule}-${action.issue}-${action.fix}`}
+							>
+								<ActionRow label="Issue" value={action.issue} />
+								<ActionRow label="Impact" value={action.impact} />
+								<ActionRow label="Fix" value={action.fix} />
+								<ActionRow label={action.detailLabel} value={action.detail} />
+								<code className="font-mono text-[10px] break-anywhere text-muted sm:absolute sm:top-5.5 sm:right-5.5">
+									{action.rule}
+								</code>
+							</dl>
+						))}
+					</div>
+				) : (
+					<p className="text-xs text-muted">No remediation actions required.</p>
 				)}
 			</section>
 

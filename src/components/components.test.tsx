@@ -306,6 +306,20 @@ describe("presentational components", () => {
 		expect(screen.getByText("Trace timeline")).toBeTruthy();
 		expect(screen.getByText("15 tok · 1.5s")).toBeTruthy();
 		expect(screen.getByText(/cooked the budget/)).toBeTruthy();
+		expect(
+			screen
+				.getByRole("heading", { name: "Cost" })
+				.compareDocumentPosition(
+					screen.getByRole("heading", { name: "Assessment" }),
+				) & Node.DOCUMENT_POSITION_FOLLOWING,
+		).toBeTruthy();
+
+		rerender(
+			<ReportView
+				roast={{ ...roast, findings: [...roast.findings, roast.findings[1]] }}
+			/>,
+		);
+		expect(screen.getByText("Seen 2×")).toBeTruthy();
 
 		rerender(
 			<ReportView
