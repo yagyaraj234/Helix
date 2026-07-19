@@ -20,12 +20,16 @@ import { Route as SitemapDotxmlRouteImport } from './routes/sitemap[.]xml'
 import { Route as UpdatePasswordRouteImport } from './routes/update-password'
 import { Route as ApiIngestRouteImport } from './routes/api.ingest'
 import { Route as AppIndexRouteImport } from './routes/app.index'
+import { Route as AppBillingRouteImport } from './routes/app.billing'
+import { Route as AppIntegrationsRouteImport } from './routes/app.integrations'
 import { Route as AppNewRouteImport } from './routes/app.new'
 import { Route as AppProfileRouteImport } from './routes/app.profile'
 import { Route as AppRoastsRouteImport } from './routes/app.roasts'
 import { Route as RSlugRouteImport } from './routes/r/$slug'
+import { Route as AppIntegrationsIndexRouteImport } from './routes/app.integrations.index'
 import { Route as AppRoastsIndexRouteImport } from './routes/app.roasts.index'
 import { Route as AppRoastsBatchRouteImport } from './routes/app.roasts.$batch'
+import { Route as AppIntegrationsLangsmithNewRouteImport } from './routes/app.integrations.langsmith.new'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -82,6 +86,16 @@ const AppIndexRoute = AppIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AppRoute,
 } as any)
+const AppBillingRoute = AppBillingRouteImport.update({
+  id: '/billing',
+  path: '/billing',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppIntegrationsRoute = AppIntegrationsRouteImport.update({
+  id: '/integrations',
+  path: '/integrations',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppNewRoute = AppNewRouteImport.update({
   id: '/new',
   path: '/new',
@@ -102,6 +116,11 @@ const RSlugRoute = RSlugRouteImport.update({
   path: '/r/$slug',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AppIntegrationsIndexRoute = AppIntegrationsIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppIntegrationsRoute,
+} as any)
 const AppRoastsIndexRoute = AppRoastsIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -112,6 +131,12 @@ const AppRoastsBatchRoute = AppRoastsBatchRouteImport.update({
   path: '/$batch',
   getParentRoute: () => AppRoastsRoute,
 } as any)
+const AppIntegrationsLangsmithNewRoute =
+  AppIntegrationsLangsmithNewRouteImport.update({
+    id: '/langsmith/new',
+    path: '/langsmith/new',
+    getParentRoute: () => AppIntegrationsRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -124,13 +149,17 @@ export interface FileRoutesByFullPath {
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/update-password': typeof UpdatePasswordRoute
   '/api/ingest': typeof ApiIngestRoute
+  '/app/billing': typeof AppBillingRoute
+  '/app/integrations': typeof AppIntegrationsRouteWithChildren
   '/app/new': typeof AppNewRoute
   '/app/profile': typeof AppProfileRoute
   '/app/roasts': typeof AppRoastsRouteWithChildren
   '/r/$slug': typeof RSlugRoute
   '/app/': typeof AppIndexRoute
   '/app/roasts/$batch': typeof AppRoastsBatchRoute
+  '/app/integrations/': typeof AppIntegrationsIndexRoute
   '/app/roasts/': typeof AppRoastsIndexRoute
+  '/app/integrations/langsmith/new': typeof AppIntegrationsLangsmithNewRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -142,12 +171,15 @@ export interface FileRoutesByTo {
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/update-password': typeof UpdatePasswordRoute
   '/api/ingest': typeof ApiIngestRoute
+  '/app/billing': typeof AppBillingRoute
   '/app/new': typeof AppNewRoute
   '/app/profile': typeof AppProfileRoute
   '/r/$slug': typeof RSlugRoute
   '/app': typeof AppIndexRoute
   '/app/roasts/$batch': typeof AppRoastsBatchRoute
+  '/app/integrations': typeof AppIntegrationsIndexRoute
   '/app/roasts': typeof AppRoastsIndexRoute
+  '/app/integrations/langsmith/new': typeof AppIntegrationsLangsmithNewRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -161,13 +193,17 @@ export interface FileRoutesById {
   '/sitemap.xml': typeof SitemapDotxmlRoute
   '/update-password': typeof UpdatePasswordRoute
   '/api/ingest': typeof ApiIngestRoute
+  '/app/billing': typeof AppBillingRoute
+  '/app/integrations': typeof AppIntegrationsRouteWithChildren
   '/app/new': typeof AppNewRoute
   '/app/profile': typeof AppProfileRoute
   '/app/roasts': typeof AppRoastsRouteWithChildren
   '/r/$slug': typeof RSlugRoute
   '/app/': typeof AppIndexRoute
   '/app/roasts/$batch': typeof AppRoastsBatchRoute
+  '/app/integrations/': typeof AppIntegrationsIndexRoute
   '/app/roasts/': typeof AppRoastsIndexRoute
+  '/app/integrations/langsmith/new': typeof AppIntegrationsLangsmithNewRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -182,13 +218,17 @@ export interface FileRouteTypes {
     | '/sitemap.xml'
     | '/update-password'
     | '/api/ingest'
+    | '/app/billing'
+    | '/app/integrations'
     | '/app/new'
     | '/app/profile'
     | '/app/roasts'
     | '/r/$slug'
     | '/app/'
     | '/app/roasts/$batch'
+    | '/app/integrations/'
     | '/app/roasts/'
+    | '/app/integrations/langsmith/new'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -200,12 +240,15 @@ export interface FileRouteTypes {
     | '/sitemap.xml'
     | '/update-password'
     | '/api/ingest'
+    | '/app/billing'
     | '/app/new'
     | '/app/profile'
     | '/r/$slug'
     | '/app'
     | '/app/roasts/$batch'
+    | '/app/integrations'
     | '/app/roasts'
+    | '/app/integrations/langsmith/new'
   id:
     | '__root__'
     | '/'
@@ -218,13 +261,17 @@ export interface FileRouteTypes {
     | '/sitemap.xml'
     | '/update-password'
     | '/api/ingest'
+    | '/app/billing'
+    | '/app/integrations'
     | '/app/new'
     | '/app/profile'
     | '/app/roasts'
     | '/r/$slug'
     | '/app/'
     | '/app/roasts/$batch'
+    | '/app/integrations/'
     | '/app/roasts/'
+    | '/app/integrations/langsmith/new'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -320,6 +367,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppIndexRouteImport
       parentRoute: typeof AppRoute
     }
+    '/app/billing': {
+      id: '/app/billing'
+      path: '/billing'
+      fullPath: '/app/billing'
+      preLoaderRoute: typeof AppBillingRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/integrations': {
+      id: '/app/integrations'
+      path: '/integrations'
+      fullPath: '/app/integrations'
+      preLoaderRoute: typeof AppIntegrationsRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/app/new': {
       id: '/app/new'
       path: '/new'
@@ -348,6 +409,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof RSlugRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/app/integrations/': {
+      id: '/app/integrations/'
+      path: '/'
+      fullPath: '/app/integrations/'
+      preLoaderRoute: typeof AppIntegrationsIndexRouteImport
+      parentRoute: typeof AppIntegrationsRoute
+    }
     '/app/roasts/': {
       id: '/app/roasts/'
       path: '/'
@@ -362,8 +430,29 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppRoastsBatchRouteImport
       parentRoute: typeof AppRoastsRoute
     }
+    '/app/integrations/langsmith/new': {
+      id: '/app/integrations/langsmith/new'
+      path: '/langsmith/new'
+      fullPath: '/app/integrations/langsmith/new'
+      preLoaderRoute: typeof AppIntegrationsLangsmithNewRouteImport
+      parentRoute: typeof AppIntegrationsRoute
+    }
   }
 }
+
+interface AppIntegrationsRouteChildren {
+  AppIntegrationsIndexRoute: typeof AppIntegrationsIndexRoute
+  AppIntegrationsLangsmithNewRoute: typeof AppIntegrationsLangsmithNewRoute
+}
+
+const AppIntegrationsRouteChildren: AppIntegrationsRouteChildren = {
+  AppIntegrationsIndexRoute: AppIntegrationsIndexRoute,
+  AppIntegrationsLangsmithNewRoute: AppIntegrationsLangsmithNewRoute,
+}
+
+const AppIntegrationsRouteWithChildren = AppIntegrationsRoute._addFileChildren(
+  AppIntegrationsRouteChildren,
+)
 
 interface AppRoastsRouteChildren {
   AppRoastsBatchRoute: typeof AppRoastsBatchRoute
@@ -380,6 +469,8 @@ const AppRoastsRouteWithChildren = AppRoastsRoute._addFileChildren(
 )
 
 interface AppRouteChildren {
+  AppBillingRoute: typeof AppBillingRoute
+  AppIntegrationsRoute: typeof AppIntegrationsRouteWithChildren
   AppNewRoute: typeof AppNewRoute
   AppProfileRoute: typeof AppProfileRoute
   AppRoastsRoute: typeof AppRoastsRouteWithChildren
@@ -387,6 +478,8 @@ interface AppRouteChildren {
 }
 
 const AppRouteChildren: AppRouteChildren = {
+  AppBillingRoute: AppBillingRoute,
+  AppIntegrationsRoute: AppIntegrationsRouteWithChildren,
   AppNewRoute: AppNewRoute,
   AppProfileRoute: AppProfileRoute,
   AppRoastsRoute: AppRoastsRouteWithChildren,

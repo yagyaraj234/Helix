@@ -165,7 +165,7 @@ function AgentTraceAnalyzerPage() {
 								for agent security risk context.
 							</li>
 							<li>
-								<a href="https://github.com/yagyaraj234/roast0">
+								<a href="https://github.com/yagyaraj234/Flint">
 									Flint source code
 								</a>{" "}
 								for the implemented checks and scoring behavior.
